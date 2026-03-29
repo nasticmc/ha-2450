@@ -50,7 +50,7 @@ class LD2450FloorplanCard extends HTMLElement {
       rooms: config.rooms || [],
       presence_sensors: config.presence_sensors || [],
       padding: config.padding ?? 500,
-      height: config.height ?? 500,
+      height: config.height ?? 600,
       show_fov: config.show_fov ?? false,
       show_grid: config.show_grid ?? false,
       background: config.background || 'transparent',
@@ -174,7 +174,7 @@ class LD2450FloorplanCard extends HTMLElement {
 
     const bounds = this._calculateBounds();
     const aspect = (bounds.maxX - bounds.minX) / Math.max(bounds.maxY - bounds.minY, 1);
-    const svgH = 600;
+    const svgH = this._config.height;
     const svgW = svgH * aspect;
 
     this.shadowRoot.innerHTML = `
@@ -184,7 +184,9 @@ class LD2450FloorplanCard extends HTMLElement {
         }
         .card {
           padding: 12px;
-          background: var(--ha-card-background, var(--card-background-color, #1a1a2e));
+          background: ${this._config.background !== 'transparent'
+            ? this._config.background
+            : 'var(--ha-card-background, var(--card-background-color, #1a1a2e))'};
           border-radius: var(--ha-card-border-radius, 12px);
           box-shadow: var(--ha-card-box-shadow, none);
           overflow: hidden;
@@ -339,27 +341,7 @@ class LD2450FloorplanCard extends HTMLElement {
       const sy = (room.offset_y || 0) + (room.sensor_y || 0);
       const pt = this._toSvg(sx, sy, this._bounds, this._svgW, this._svgH);
 
-      // Sensor diamond
-      const diamond = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-      const s = 6;
-      diamond.setAttribute('points',
-        `${pt.x},${pt.y - s} ${pt.x + s},${pt.y} ${pt.x},${pt.y + s} ${pt.x - s},${pt.y}`);
-      diamond.setAttribute('fill', SENSOR_COLOR);
-      diamond.setAttribute('opacity', '0.9');
-      g.appendChild(diamond);
-
-      // Glow ring
-      const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      ring.setAttribute('cx', pt.x);
-      ring.setAttribute('cy', pt.y);
-      ring.setAttribute('r', '9');
-      ring.setAttribute('fill', 'none');
-      ring.setAttribute('stroke', SENSOR_COLOR);
-      ring.setAttribute('stroke-width', '0.8');
-      ring.setAttribute('opacity', '0.3');
-      g.appendChild(ring);
-
-      // FOV cone (170° field of view)
+      // FOV cone (170° field of view) — drawn first so sensor markers appear on top
       if (this._config.show_fov) {
         const fovRange = room.fov_range || 6000; // detection range in mm
         const halfFov = (170 / 2) * (Math.PI / 180); // 85° half-angle
@@ -384,6 +366,26 @@ class LD2450FloorplanCard extends HTMLElement {
         fov.setAttribute('stroke-width', '0.5');
         g.appendChild(fov);
       }
+
+      // Glow ring — drawn before diamond so it appears behind it
+      const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      ring.setAttribute('cx', pt.x);
+      ring.setAttribute('cy', pt.y);
+      ring.setAttribute('r', '9');
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', SENSOR_COLOR);
+      ring.setAttribute('stroke-width', '0.8');
+      ring.setAttribute('opacity', '0.3');
+      g.appendChild(ring);
+
+      // Sensor diamond
+      const diamond = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      const s = 6;
+      diamond.setAttribute('points',
+        `${pt.x},${pt.y - s} ${pt.x + s},${pt.y} ${pt.x},${pt.y + s} ${pt.x - s},${pt.y}`);
+      diamond.setAttribute('fill', SENSOR_COLOR);
+      diamond.setAttribute('opacity', '0.9');
+      g.appendChild(diamond);
     }
   }
 
