@@ -32,10 +32,20 @@ class LD2450FloorplanCard extends HTMLElement {
 
   // HA calls this when config changes
   setConfig(config) {
-    if (!config.rooms || !Array.isArray(config.rooms)) {
+    if (!config.rooms || !Array.isArray(config.rooms) || config.rooms.length === 0) {
       throw new Error('You must define at least one room');
     }
+    for (let i = 0; i < config.rooms.length; i++) {
+      const room = config.rooms[i];
+      if (!room.entity_prefix) {
+        throw new Error(`Room ${i + 1} (${room.name || 'unnamed'}): entity_prefix is required`);
+      }
+      if (!room.width || !room.height) {
+        throw new Error(`Room ${i + 1} (${room.name || 'unnamed'}): width and height are required`);
+      }
+    }
     this._config = {
+      ...config,
       title: config.title || 'LD2450 Floorplan',
       rooms: config.rooms || [],
       presence_sensors: config.presence_sensors || [],
@@ -44,7 +54,6 @@ class LD2450FloorplanCard extends HTMLElement {
       show_fov: config.show_fov ?? false,
       show_grid: config.show_grid ?? false,
       background: config.background || 'transparent',
-      ...config,
     };
     this._initialized = false;
     this._render();
@@ -135,10 +144,13 @@ class LD2450FloorplanCard extends HTMLElement {
 
     if (!xState || !yState) return null;
 
+    // Check for HA unavailable/unknown states before parsing
+    const invalidStates = ['unavailable', 'unknown', ''];
+    if (invalidStates.includes(xState.state) || invalidStates.includes(yState.state)) return null;
+
     const x = Number(xState.state);
     const y = Number(yState.state);
 
-    if (x === 0 && y === 0) return null;
     if (isNaN(x) || isNaN(y)) return null;
 
     return { x, y };
@@ -161,7 +173,7 @@ class LD2450FloorplanCard extends HTMLElement {
     if (!this._config.rooms) return;
 
     const bounds = this._calculateBounds();
-    const aspect = (bounds.maxX - bounds.minX) / (bounds.maxY - bounds.minY);
+    const aspect = (bounds.maxX - bounds.minX) / Math.max(bounds.maxY - bounds.minY, 1);
     const svgH = 600;
     const svgW = svgH * aspect;
 
@@ -202,7 +214,7 @@ class LD2450FloorplanCard extends HTMLElement {
       </style>
       <ha-card>
         <div class="card">
-          ${this._config.title ? `<div class="title">${this._config.title}</div>` : ''}
+          ${this._config.title ? `<div class="title" id="card-title"></div>` : ''}
           <svg viewBox="0 0 ${svgW} ${svgH}" id="floorplan-svg">
             <defs>
               <filter id="glow">
@@ -210,6 +222,8 @@ class LD2450FloorplanCard extends HTMLElement {
                 <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
             </defs>
+            <!-- Grid -->
+            <g id="grid"></g>
             <!-- Room outlines -->
             <g id="rooms"></g>
             <!-- Room labels -->
@@ -228,11 +242,14 @@ class LD2450FloorplanCard extends HTMLElement {
     `;
 
     this._svg = this.shadowRoot.querySelector('#floorplan-svg');
+    const titleEl = this.shadowRoot.querySelector('#card-title');
+    if (titleEl) titleEl.textContent = this._config.title;
     this._bounds = bounds;
     this._svgW = svgW;
     this._svgH = svgH;
 
     // Draw static elements
+    this._drawGrid();
     this._drawRooms();
     this._drawSensors();
     this._drawLandmarks();
@@ -240,6 +257,41 @@ class LD2450FloorplanCard extends HTMLElement {
     this._createTargetElements();
 
     this._initialized = true;
+  }
+
+  _drawGrid() {
+    const g = this._svg.querySelector('#grid');
+    g.innerHTML = '';
+    if (!this._config.show_grid) return;
+
+    const step = this._config.grid_step || 1000; // default 1m grid
+    const bounds = this._bounds;
+
+    // Draw vertical lines
+    const startX = Math.ceil(bounds.minX / step) * step;
+    for (let x = startX; x <= bounds.maxX; x += step) {
+      const p1 = this._toSvg(x, bounds.minY, bounds, this._svgW, this._svgH);
+      const p2 = this._toSvg(x, bounds.maxY, bounds, this._svgW, this._svgH);
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+      line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+      line.setAttribute('stroke', 'rgba(255,255,255,0.05)');
+      line.setAttribute('stroke-width', '0.5');
+      g.appendChild(line);
+    }
+
+    // Draw horizontal lines
+    const startY = Math.ceil(bounds.minY / step) * step;
+    for (let y = startY; y <= bounds.maxY; y += step) {
+      const p1 = this._toSvg(bounds.minX, y, bounds, this._svgW, this._svgH);
+      const p2 = this._toSvg(bounds.maxX, y, bounds, this._svgW, this._svgH);
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+      line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+      line.setAttribute('stroke', 'rgba(255,255,255,0.05)');
+      line.setAttribute('stroke-width', '0.5');
+      g.appendChild(line);
+    }
   }
 
   _drawRooms() {
@@ -306,6 +358,32 @@ class LD2450FloorplanCard extends HTMLElement {
       ring.setAttribute('stroke-width', '0.8');
       ring.setAttribute('opacity', '0.3');
       g.appendChild(ring);
+
+      // FOV cone (170° field of view)
+      if (this._config.show_fov) {
+        const fovRange = room.fov_range || 6000; // detection range in mm
+        const halfFov = (170 / 2) * (Math.PI / 180); // 85° half-angle
+        // The sensor faces along the +Y axis in sensor-local coords
+        // Generate two edge points of the FOV in sensor-local space
+        const leftX = -fovRange * Math.sin(halfFov);
+        const leftY = fovRange * Math.cos(halfFov);
+        const rightX = fovRange * Math.sin(halfFov);
+        const rightY = fovRange * Math.cos(halfFov);
+
+        // Transform through room coordinate system
+        const leftGlobal = this._transformTarget(room, leftX, leftY);
+        const rightGlobal = this._transformTarget(room, rightX, rightY);
+        const leftSvg = this._toSvg(leftGlobal.x, leftGlobal.y, this._bounds, this._svgW, this._svgH);
+        const rightSvg = this._toSvg(rightGlobal.x, rightGlobal.y, this._bounds, this._svgW, this._svgH);
+
+        const fov = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        fov.setAttribute('points',
+          `${pt.x},${pt.y} ${leftSvg.x},${leftSvg.y} ${rightSvg.x},${rightSvg.y}`);
+        fov.setAttribute('fill', 'rgba(0,255,136,0.04)');
+        fov.setAttribute('stroke', 'rgba(0,255,136,0.12)');
+        fov.setAttribute('stroke-width', '0.5');
+        g.appendChild(fov);
+      }
     }
   }
 
@@ -476,11 +554,6 @@ class LD2450FloorplanCard extends HTMLElement {
   // Card size for HA layout
   getCardSize() {
     return 4;
-  }
-
-  // Config editor stub (for future visual editor)
-  static getConfigElement() {
-    return document.createElement('ld2450-floorplan-card-editor');
   }
 
   static getStubConfig() {
