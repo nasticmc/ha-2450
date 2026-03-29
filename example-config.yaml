@@ -1,0 +1,72 @@
+# Example configuration for LD2450 Floorplan Card
+# Copy this into your Lovelace dashboard YAML
+
+type: custom:ld2450-floorplan-card
+title: House Map
+rooms:
+  # GARAGE - straight mount on left wall
+  - name: Garage
+    entity_prefix: sensor.hlk_ld2450_59b7
+    width: 4000
+    height: 5000
+    offset_x: 0
+    offset_y: 0
+    sensor_x: 0
+    sensor_y: 3000
+    rotation: 0
+    axis_swap: true
+    flip_y: true
+    landmarks:
+      - label: B
+        x: 3500
+        y: 5000
+      - label: P
+        x: 4000
+        y: 1000
+
+  # LOUNGE - 45° corner mount
+  - name: Lounge
+    entity_prefix: sensor.hlk_ld2450_lounge
+    width: 5000
+    height: 5000
+    offset_x: 5000
+    offset_y: 0
+    sensor_x: 0
+    sensor_y: 0
+    rotation: 45
+    landmarks:
+      - label: C
+        x: 2700
+        y: 2600
+      - label: F
+        x: 4200
+        y: 0
+      - label: P
+        x: 0
+        y: 3500
+
+  # KITCHEN - 45° corner mount, Y inverted (sensor at top)
+  - name: Kitchen
+    entity_prefix: sensor.hlk_ld2450_dea2
+    width: 6000
+    height: 6000
+    offset_x: 7500
+    offset_y: 4500
+    sensor_x: 0
+    sensor_y: 0
+    rotation: 45
+    flip_y: true
+    landmarks:
+      - label: H
+        x: 3000
+        y: 6000
+      - label: B
+        x: 0
+        y: 3000
+
+# Presence-only sensors (no x/y tracking)
+presence_sensors:
+  - name: Study
+    entity: binary_sensor.esp_sunroom_presence
+    x: 4500
+    y: 2500
