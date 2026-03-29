@@ -1,5 +1,5 @@
 {
   "name": "LD2450 Floorplan Card",
   "render_readme": true,
-  "filename": "ld2450-floorplan-card.js"
+  "filename": "dist/ld2450-floorplan-card.js"
 }
